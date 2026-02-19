@@ -1,32 +1,68 @@
 import { Page } from "puppeteer";
 
 export async function login(page: Page, email: string): Promise<void> {
-  console.log("Navigating to Perplexity...");
-  await page.goto("https://www.perplexity.ai/");
+  console.log("Navigating to Perplexity library...");
+  console.log("A login modal will appear. Please log in manually.");
+  console.log("Waiting up to 3 minutes for login to complete...");
 
-  await page.click("button::-p-text('Accept All Cookies')");
+  await page.goto("https://www.perplexity.ai/library");
+  await new Promise((r) => setTimeout(r, 3000));
 
-  // Wait for email input and enter credentials
-  await page.waitForSelector('input[type="email"]');
-  await page.type('input[type="email"]', email);
+  const maxWait = 180000; // 3 minutes
+  const pollInterval = 2000;
+  let elapsed = 0;
+  let loggedIn = false;
 
-  // Click the login submit button
-  await page.click("button::-p-text('Continue with email')");
+  while (elapsed < maxWait) {
+    try {
+      // Check current URL first — after OAuth redirect we may land back on library
+      const currentUrl = page.url();
 
-  await page.waitForNavigation();
+      // If we're on an OAuth page (Google, Apple), just wait
+      if (
+        currentUrl.includes("accounts.google") ||
+        currentUrl.includes("appleid.apple.com")
+      ) {
+        await new Promise((r) => setTimeout(r, pollInterval));
+        elapsed += pollInterval;
+        continue;
+      }
 
-  await page.waitForSelector('input[placeholder="Enter Code"]');
+      // If we're back on Perplexity, check for threads
+      if (currentUrl.includes("perplexity.ai")) {
+        loggedIn = await page.evaluate(() => {
+          const loginModal = document.querySelector('[data-testid="login-modal"]');
+          if (loginModal) return false;
+          const allLinks = Array.from(document.querySelectorAll("a"));
+          return allLinks.some(
+            (a) => a.href && a.href.includes("perplexity.ai/search/")
+          );
+        });
+      }
+    } catch {
+      // Navigation destroyed context — this is expected during OAuth redirects
+    }
 
-  console.log(
-    "Check your email and enter code in the window.\nWaiting for you to enter the email code and login to succeed..."
-  );
+    if (loggedIn) break;
 
-  await page.waitForNavigation();
+    await new Promise((r) => setTimeout(r, pollInterval));
+    elapsed += pollInterval;
 
-  // Wait for the main chat input to be ready
-  await page.waitForSelector("#ask-input", {
-    timeout: 120000,
-  });
+    if (elapsed % 30000 === 0) {
+      console.log(`Still waiting for login... (${elapsed / 1000}s elapsed)`);
+    }
+  }
 
-  console.log("Successfully logged in");
+  if (!loggedIn) {
+    throw new Error("Login timed out after 3 minutes. Please try again.");
+  }
+
+  // Make sure we're on the library page after login
+  const currentUrl = page.url();
+  if (!currentUrl.includes("/library")) {
+    await page.goto("https://www.perplexity.ai/library");
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+
+  console.log("Successfully logged in — threads detected in library");
 }
