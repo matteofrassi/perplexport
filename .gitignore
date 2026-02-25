@@ -2,3 +2,14 @@ node_modules
 conversations
 done.json
 dist
+
+# Security
+.env
+.env.*
+.claude/
+*.pem
+*.key
+credentials.json
+
+# macOS
+.DS_Store
